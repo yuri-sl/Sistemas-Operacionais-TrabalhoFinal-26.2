@@ -61,11 +61,11 @@ Rodem `ipcs` de vez em quando. Quando o programa trava, os recursos IPC continua
 |---|---|---|
 | `common.h` | **todos** | Contrato: tipos, constantes, sinais e assinaturas |
 | `ipc.c` | pronto | Despacho para o paradigma escolhido e validação da fila |
-| `mpmc.c` | Pessoa 1 | Shell, fork, tabela de filhos, shutdown |
-| `ipc_shm.c` | Pessoa 2 | Backend de memória compartilhada + semáforos |
-| `ipc_msg.c` | Pessoa 3 | Backend de fila de mensagens |
-| `produz.c` | Pessoa 4 | Processo produtor, modo striped, espera de ack |
-| `consome.c` | Pessoa 5 | Processo consumidor, envio de ack, testes |
+| `mpmc.c` | Alan | Shell, fork, tabela de filhos, shutdown |
+| `ipc_shm.c` | Yuri | Backend de memória compartilhada + semáforos |
+| `ipc_msg.c` | Felipe | Backend de fila de mensagens |
+| `produz.c` | Gabriel | Processo produtor, modo striped, espera de ack |
+| `consome.c` | João Santos | Processo consumidor, envio de ack, testes |
 
 Cada `.c` tem um bloco `TODO` com o passo a passo da sua parte.
 
