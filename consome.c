@@ -1,26 +1,65 @@
 /* consome.c — Pessoa 5: processo consumidor (+ testes) */
 #include "common.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
 
-/* TODO Pessoa 5:
- * consome_main:
- *  for i in 1..n_msgs:
- *     ack == ACK_SIM -> ipc_get(fila, &m, 1)   (bloqueia até chegar)
- *     ack == ACK_NAO -> ipc_get(fila, &m, 0)   (EAGAIN -> para)
- *     depois de cada get OK: ack_confirmar(&m); consumo_notificar(fila);
- *  completo -> _exit(0)
- *  parcial  -> imprimir "erro: consumidas k de n", _exit(1)
- *
- * ack_confirmar:     se m->ack == ACK_SIM -> sigqueue(m->pid, SIG_ACK, v)
- *                    (ESRCH = produtor já morreu -> ignorar)
- * consumo_notificar: sigqueue(g_mpmc_pid, SIG_CONSUMO, (union sigval){ .sival_int = fila })
- */
+void ack_confirmar(const msg_t *m)
+{
+    if (m != NULL && m->ack == ACK_SIM) {
+        union sigval v;
+        v.sival_int = m->seq;
+        if (sigqueue(m->pid, SIG_ACK, v) == -1) {
+            /* Se o produtor já terminou/morreu (ESRCH), ignora o erro */
+            if (errno != ESRCH) {
+                perror("[consome] Falha ao enviar SIG_ACK via sigqueue");
+            }
+        }
+    }
+}
 
-void ack_confirmar(const msg_t *m)   { (void)m; }
-void consumo_notificar(int fila)     { (void)fila; }
+void consumo_notificar(int fila)
+{
+    union sigval v;
+    v.sival_int = fila;
+    if (sigqueue(g_mpmc_pid, SIG_CONSUMO, v) == -1) {
+        perror("[consome] Falha ao enviar SIG_CONSUMO via sigqueue");
+    }
+}
 
 void consome_main(int fila, int n_msgs, int ack)
 {
-    (void)fila; (void)n_msgs; (void)ack;
+    int consumidas = 0;
+    int bloqueante = (ack == ACK_SIM) ? 1 : 0;
+    msg_t m;
+
+    for (int i = 0; i < n_msgs; i++) {
+        int ret = ipc_get(fila, &m, bloqueante);
+
+        if (ret == -1) {
+            if (!bloqueante && errno == EAGAIN) {
+                /* erro informando quantas foram consumidas */
+                fprintf(stderr, "erro: consumidas %d de %d\n", consumidas, n_msgs);
+                _exit(1);
+            }
+            /* Trata interrupção por sinal repetindo a leitura */
+            if (errno == EINTR) {
+                i--;
+                continue;
+            }
+            perror("[consome] Erro inesperado em ipc_get");
+            _exit(1);
+        }
+
+        consumidas++;
+
+        /* 1. Confirma o recebimento ao produtor */
+        ack_confirmar(&m);
+
+        /* 2. Notifica o shell mpmc do consumo efetuado */
+        consumo_notificar(fila);
+    }
+
     _exit(0);
 }
