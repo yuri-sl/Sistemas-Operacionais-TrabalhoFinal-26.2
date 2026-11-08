@@ -24,7 +24,20 @@ make clean      # apaga binário e .o
 make ipcclean   # apaga shm/sem/msg que sobraram de execuções que travaram
 ```
 
-Rodem `ipcs` de vez em quando. Quando o programa trava, os recursos IPC continuam no sistema e o limite enche rápido.
+Rodem `ipcs` de vez em quando. Quando o programa trava, os recursos IPC continuam no sistema e o limite enche rápido. Isso inclui encerrar com Ctrl-C: só o `shutdown` (ou o fim da entrada, Ctrl-D) apaga o IPC.
+
+Precisa de Linux (System V IPC e sinais de tempo real). No Windows, use o WSL; o gcc do MinGW não tem `sys/shm.h`.
+
+### Lançar com `&`
+O enunciado permite `mpmc p paradigma &`. Num terminal, porém, um processo em segundo plano não pode ler do teclado: o shell o suspende (`Stopped (tty input)`) e os comandos digitados vão para o bash. Para usar, traga o mpmc para o primeiro plano com `fg`:
+
+```bash
+./mpmc 2 2 &
+fg
+>> produz 2 3 2
+```
+
+O `&` no fim de `produz`/`consome` é aceito e ignorado: eles já rodam concorrentes ao mpmc.
 
 ### Comandos
 
@@ -67,7 +80,7 @@ Rodem `ipcs` de vez em quando. Quando o programa trava, os recursos IPC continua
 | `produz.c` | Gabriel | Processo produtor, modo striped, espera de ack |
 | `consome.c` | João Santos | Processo consumidor, envio de ack, testes |
 
-Cada `.c` tem um bloco `TODO` com o passo a passo da sua parte.
+Os testes ficam em `testes/` (ver [Testes](#testes)).
 
 ---
 
@@ -101,7 +114,7 @@ Fila fora de `0..p-1` → -1 com `errno=EINVAL`.
 - **Filas:** o usuário digita 1..p. Internamente tudo é **0..p-1**, e o shell converte. `produz 0` vira `FILA_STRIPED`.
 - **Recursos IPC** são criados com `IPC_PRIVATE` pelo mpmc **antes do primeiro fork**. Os filhos herdam ids e `shmat`. Não usamos `ftok`.
 - **Processos** são só `fork()`, sem `exec`. O filho chama `produz_main`/`consome_main`, que terminam com `_exit()`.
-- **Tempo de cada filho:** medido pelo mpmc (do fork ao `waitpid`).
+- **Tempo de cada filho:** medido pelo mpmc, do fork até o `waitpid`. Enquanto espera um comando, o mpmc também acorda com o `SIGCHLD` (lido por um `signalfd`) e colhe na hora o filho que terminou: o tempo não inclui a espera no prompt e nenhum filho fica zumbi. Filhos ainda vivos no `shutdown` contam até morrerem pelo `SIGTERM`.
 - **Contagem de consumidas:** o consumidor envia `SIG_CONSUMO` ao mpmc com `sival_int = fila` a cada mensagem consumida.
 
 ### Por que sinais de tempo real
@@ -124,7 +137,7 @@ O produtor precisa chamar `ack_preparar()` (bloquear `SIG_ACK`) **antes do prime
 - `mq_msg_t { long mtype; msg_t m; }` com `mtype = 1`.
 - `msgsnd(id, &x, sizeof(msg_t), 0)`: o tamanho **não** inclui o `mtype`.
 - `msgrcv` com `IPC_NOWAIT` devolve `ENOMSG` quando a fila está vazia. Convertam para `EAGAIN`.
-- O limite `msgmnb` (~16 KB) comporta cerca de 500 mensagens por fila. Acima disso o put bloqueia, e isso é o comportamento esperado.
+- O limite `msgmnb` (16384 bytes por padrão) comporta 512 mensagens de 32 bytes por fila. Acima disso o put bloqueia até alguém consumir, mesmo com `ack=2`; é o comportamento esperado.
 
 ---
 
@@ -138,6 +151,10 @@ O produtor precisa chamar `ack_preparar()` (bloquear `SIG_ACK`) **antes do prime
 ---
 
 ## Testes (Pessoa 5)
+
+```bash
+bash testes/rodar_todos.sh   # compila, roda os quatro testes e limpa o IPC
+```
 
 Reproduzir os exemplos do enunciado nos dois paradigmas:
 
@@ -153,5 +170,8 @@ Casos de borda: `n_msgs` = 0 e 1025, `ack` inválido, consumo com `ack=2` em fil
 
 ## Dúvidas pendentes com a professora
 1. Exemplo 3.1: "produtor 3 produz na memória compartilhada 2". É erro de digitação ou existe uma regra de mapeamento?
+   Hoje: `produz 3` grava na fila 3. O resultado final do exemplo (2 consumidas na fila 2) é o mesmo nas duas leituras.
 2. Último exemplo: o texto fala em "3 mensagens" e depois em "duas mensagens saírem do buffer".
+   Hoje: `consome 2 3 1` consome 3, como o comando pede.
 3. Mensagens striped contam como de qual produtor para efeito de ack?
+   Hoje: o ack volta para o processo `produz` que enviou (pid na mensagem), qualquer que seja a fila.

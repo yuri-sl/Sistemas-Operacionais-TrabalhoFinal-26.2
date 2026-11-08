@@ -14,7 +14,10 @@
  *   - Para cada produz/consome faz fork(); o filho chama produz_main()/
  *     consome_main() e termina com _exit(). O mpmc apenas registra o filho.
  *   - O tempo de execução de cada filho é medido PELO MPMC: início no fork,
- *     fim no waitpid (os filhos não têm handler de SIGTERM).
+ *     fim no waitpid (os filhos não têm handler de SIGTERM). Enquanto espera
+ *     um comando, o mpmc também acorda com o SIGCHLD (via signalfd) e colhe
+ *     na hora o filho que terminou: o tempo não inclui a espera no prompt e
+ *     não fica zumbi.
  *   - No shutdown: SIGTERM nos filhos vivos, waitpid em todos, imprime o tempo
  *     de cada filho, o total consumido por fila, o tempo de operação do mpmc,
  *     e por fim ipc_destroy() para apagar os IPCs.
@@ -28,6 +31,8 @@
 #include <errno.h>
 #include <limits.h>
 #include <sys/wait.h>
+#include <poll.h>
+#include <sys/signalfd.h>
 
 /* -------------------------------------------- globais do contrato (common.h) */
 int   g_paradigma;
@@ -263,6 +268,21 @@ int main(int argc, char **argv)
     g_mpmc_pid = getpid();
     instalar_handler();                 /* handler de SIG_CONSUMO */
 
+    /* SIGCHLD bloqueado e entregue por um descritor: o loop espera o teclado
+     * e esse descritor juntos, e colhe o filho no instante em que termina.
+     * Sem handler, a tabela de filhos só muda no loop (sem condição de
+     * corrida com o fork). Se o signalfd falhar, sfd = -1 e o poll o ignora:
+     * os filhos voltam a ser colhidos só a cada comando. */
+    sigset_t so_chld;
+    sigemptyset(&so_chld);
+    sigaddset(&so_chld, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &so_chld, NULL);
+    int sfd = signalfd(-1, &so_chld, SFD_NONBLOCK);
+
+    /* Sem buffer na entrada: com buffer, linhas já lidas para dentro do stdio
+     * não apareceriam para o poll e o mpmc travaria esperando. */
+    setvbuf(stdin, NULL, _IONBF, 0);
+
     if (ipc_init(paradigma, p) == -1) { /* cria os recursos IPC */
         perror("ipc_init");
         return 1;
@@ -277,6 +297,20 @@ int main(int argc, char **argv)
 
         printf(">> ");
         fflush(stdout);
+
+        /* Espera o próximo comando; se um filho terminar antes, colhe já. */
+        struct pollfd pf[2] = { { STDIN_FILENO, POLLIN, 0 }, { sfd, POLLIN, 0 } };
+        while (poll(pf, 2, -1) != -1 || errno == EINTR) {
+            if (pf[1].revents & POLLIN) {
+                struct signalfd_siginfo si;
+                while (read(sfd, &si, sizeof si) == (ssize_t)sizeof si)
+                    ;                   /* esvazia: vários SIGCHLD viram um */
+                colher_filhos();
+            }
+            if (pf[0].revents)          /* chegou linha, EOF ou erro */
+                break;
+            pf[0].revents = pf[1].revents = 0;
+        }
 
         if (fgets(linha, sizeof linha, stdin) == NULL) {
             printf("\n");               /* EOF (Ctrl-D) -> trata como shutdown */
