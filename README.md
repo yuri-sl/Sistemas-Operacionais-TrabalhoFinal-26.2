@@ -156,6 +156,8 @@ O produtor precisa chamar `ack_preparar()` (bloquear `SIG_ACK`) **antes do prime
 bash testes/rodar_todos.sh   # compila, roda os quatro testes e limpa o IPC
 ```
 
+Para conferir cada fluxo à mão (semáforos, buffer cheio e vazio, ack, striped, zumbis, shutdown) com `ps` e `ipcs`, siga o [guia de verificação manual](GUIA_VERIFICACAO.md).
+
 Reproduzir os exemplos do enunciado nos dois paradigmas:
 
 | Teste | Entrada | Esperado |
