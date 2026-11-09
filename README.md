@@ -79,7 +79,7 @@ Produz e consome usam apenas estas funções e não sabem qual é o paradigma.
 | `ipc_get(fila, &m, bloqueante)` | 0; -1 com `errno=EAGAIN` se a fila estiver vazia e não bloqueante |
 | `ipc_destroy()` | — |
 
-Fila fora de `0..p-1` → -1 com `errno=EINVAL`.
+Fila fora de `0..p-1` -> -1 com `errno=EINVAL`.
 
 ## Testes
 
