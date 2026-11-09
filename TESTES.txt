@@ -1,0 +1,80 @@
+ROTEIRO DE TESTES - MPMC
+========================
+
+Os testes abaixo reproduzem os exemplos do enunciado e alguns casos de borda.
+Cada bloco e uma sequencia de comandos digitada na interface do ./mpmc.
+
+Como rodar manualmente:
+  # compila (ver README.txt para detalhes):
+  gcc -std=c11 -Wall -Wextra -D_GNU_SOURCE -g -o mpmc \
+      mpmc.c ipc.c ipc_shm.c ipc_msg.c produz.c consome.c
+  ./mpmc <p> <paradigma>    # inicia; depois digite os comandos, um por linha
+
+  # limpe o IPC entre um teste e outro:
+  ipcs -m | awk '$3 == "'$USER'" {print $2}' | xargs -r -n1 ipcrm -m
+  ipcs -s | awk '$3 == "'$USER'" {print $2}' | xargs -r -n1 ipcrm -s
+  ipcs -q | awk '$3 == "'$USER'" {print $2}' | xargs -r -n1 ipcrm -q
+
+Observacao: ao automatizar (pipe/echo), use uma pequena pausa (sleep ~0.5s)
+entre os comandos; sem isso o shutdown chega antes de os filhos trabalharem.
+
+Entre cada teste rode os tres comandos de limpeza de IPC acima para apagar
+shm/sem/msg residuais.
+
+-----------------------------------------------------------------------
+
+TESTE 3.1  -  Memoria Compartilhada, 4 produtores
+  Inicio:   ./mpmc 4 1
+  Comandos:
+      produz 3 2 1
+      consome 2 2 1
+      produz 2 5 1
+      shutdown
+  Esperado: fila 2 com 2 consumidas, demais com 0.
+            O consumidor completa e os produtores ficam bloqueados ate
+            o shutdown.
+
+-----------------------------------------------------------------------
+
+TESTE 3.2  -  Fila de Mensagens, validacao e concorrencia, 2 produtores
+  Inicio:   ./mpmc 2 2
+  Comandos:
+      produz 3 2 1
+      consome 2 2 1
+      consome 2 2 1
+      produz 2 5 2
+      shutdown
+  Esperado: erro - fila 3 nao existe (fila inexistente);
+            fila 2 com 4 consumidas.
+
+-----------------------------------------------------------------------
+
+TESTE 3.3  -  Fila de Mensagens, modo striped, 5 produtores
+  Inicio:   ./mpmc 5 2
+  Comandos:
+      produz 0 15 2
+      consome 2 3 1
+      consome 1 2 1
+      produz 3 2 1
+      shutdown
+  Esperado: fila 1 com 2 consumidas, fila 2 com 3, demais com 0
+            (distribuicao striped de 15 mensagens entre as 5 filas).
+
+-----------------------------------------------------------------------
+
+TESTE DE BORDA  -  Buffer circular > 63 slots e ack=2 em fila vazia
+  Inicio:   ./mpmc 2 1
+  Comandos:
+      produz 1 100 2
+      consome 1 100 1
+      consome 2 5 2
+      shutdown
+  Esperado: fila 1 com 100 consumidas (o buffer de 63 slots da varias
+            voltas); erro: consumidas 0 de 5 (ack=2 em fila vazia).
+
+-----------------------------------------------------------------------
+
+OUTROS CASOS DE BORDA
+  - n_msgs = 0 e n_msgs = 1025 (fora do intervalo 1..1024): devem ser rejeitados.
+  - ack invalido (diferente de 1 ou 2): deve ser rejeitado.
+  - fila fora de 0..p-1: erro - fila nao existe.

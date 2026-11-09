@@ -8,7 +8,6 @@ Para uma checagem rápida, sem inspecionar nada: `bash testes/rodar_todos.sh`.
 
 ## Preparação
 
-O projeto só roda em Linux. No Windows, use o **WSL**. O Git Bash não serve: ele não tem `make` e o Windows não tem System V IPC.
 
 Abra **dois terminais** e, nos dois:
 
