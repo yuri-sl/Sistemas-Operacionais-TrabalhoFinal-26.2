@@ -45,24 +45,6 @@ fg
 
 ## Arquitetura
 
-```
-              ┌──────────── mpmc (shell) ────────────┐
-              │ ipc_init() antes de qualquer fork     │
-              │ handler de SIG_CONSUMO -> contadores   │
-              └──────┬──────────────────────┬─────────┘
-                fork │                      │ fork
-              ┌──────▼──────┐        ┌──────▼──────┐
-              │   produz    │        │   consome   │
-              │ ipc_put()   │        │ ipc_get()   │
-              └──────▲──────┘        └──┬───────┬──┘
-                     │   SIG_ACK        │       │ SIG_CONSUMO
-                     └──────────────────┘       └──────> mpmc
-                          ipc.c (despacho)
-                   ┌──────────┴──────────┐
-               ipc_shm.c            ipc_msg.c
-            (paradigma 1)         (paradigma 2)
-```
-
 | Arquivo  | Conteúdo |
 |---|---|
 | `common.h` | Contrato: tipos, constantes, sinais e assinaturas |
