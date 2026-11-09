@@ -64,7 +64,7 @@ Os testes ficam em `testes/`.
 typedef struct {
     pid_t           pid;      // pid do produz que enviou
     int             seq;      // 1..n_msgs, por processo emissor
-    int             ack;      // ACK_SIM → consumidor confirma ao produtor
+    int             ack;      // ACK_SIM -> consumidor confirma ao produtor
     struct timespec t_envio;  // CLOCK_REALTIME no momento do put
 } msg_t;                      // 32 bytes
 ```
