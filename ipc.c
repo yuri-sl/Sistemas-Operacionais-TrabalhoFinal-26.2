@@ -1,4 +1,4 @@
-/* ipc.c — despacho para o paradigma escolhido */
+/* ipc.c: encaminha cada chamada para o paradigma escolhido */
 #include "common.h"
 #include <errno.h>
 

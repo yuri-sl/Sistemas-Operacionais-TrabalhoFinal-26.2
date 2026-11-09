@@ -1,4 +1,4 @@
-/* ver_shm.c - anexa (só leitura) um segmento do mpmc e mostra as mensagens.
+/* ver_shm.c: anexa (só leitura) um segmento do mpmc e mostra as mensagens.
  * Compilar na raiz do projeto: gcc -D_GNU_SOURCE -I. -o /tmp/ver_shm testes/ver_shm.c
  * Usar: /tmp/ver_shm <shmid>   (shmid vem do "ipcs -m"). Nao altera nada:
  *       anexa o segmento com SHM_RDONLY. Ver GUIA_VERIFICACAO.md. */

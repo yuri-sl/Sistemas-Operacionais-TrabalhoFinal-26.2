@@ -1,26 +1,12 @@
-/* mpmc.c — Pessoa 1: shell, gerência de processos e shutdown
+/* mpmc.c: shell, gerência dos processos filhos e shutdown
  *
- * Papel do mpmc no trabalho (ver common.h e o enunciado):
- *   - É lançado como "mpmc p paradigma" (p = nº de produtores/filas,
- *     paradigma = 1 shm+sem, 2 fila de mensagens).
- *   - Cria TODOS os recursos IPC com ipc_init(), ANTES do primeiro fork,
- *     para que os filhos herdem os ids (e os mapeamentos de shm) por fork.
- *   - Instala o handler de SIG_CONSUMO ANTES do primeiro fork: cada mensagem
- *     consumida por um filho vira um sinal que incrementa g_consumidas[fila].
- *   - Mostra o prompt ">>" e interpreta: produz / consome / shutdown.
- *       produz  p n_msgs ack   (p = 0 -> striped; 1..g_p -> fila p-1)
- *       consome p n_msgs ack   (p = 1..g_p -> fila p-1)
- *       shutdown
- *   - Para cada produz/consome faz fork(); o filho chama produz_main()/
- *     consome_main() e termina com _exit(). O mpmc apenas registra o filho.
- *   - O tempo de execução de cada filho é medido PELO MPMC: início no fork,
- *     fim no waitpid (os filhos não têm handler de SIGTERM). Enquanto espera
- *     um comando, o mpmc também acorda com o SIGCHLD (via signalfd) e colhe
- *     na hora o filho que terminou: o tempo não inclui a espera no prompt e
- *     não fica zumbi.
- *   - No shutdown: SIGTERM nos filhos vivos, waitpid em todos, imprime o tempo
- *     de cada filho, o total consumido por fila, o tempo de operação do mpmc,
- *     e por fim ipc_destroy() para apagar os IPCs.
+ * Uso: mpmc p paradigma   (paradigma 1 = memória compartilhada, 2 = filas)
+ * Comandos: produz p n_msgs ack | consome p n_msgs ack | shutdown
+ *
+ * O tempo de cada filho é medido pelo mpmc, do fork até o waitpid. Enquanto
+ * espera um comando, o mpmc também acompanha o SIGCHLD (via signalfd) e colhe
+ * o filho assim que ele termina, então nenhum fica zumbi e o tempo não inclui
+ * a espera no prompt.
  */
 #include "common.h"
 
@@ -34,37 +20,31 @@
 #include <poll.h>
 #include <sys/signalfd.h>
 
-/* -------------------------------------------- globais do contrato (common.h) */
 int   g_paradigma;
 int   g_p;
 pid_t g_mpmc_pid;
 
-/* -------------------------------------------------------- tabela de filhos */
 #define TIPO_PRODUTOR    0
 #define TIPO_CONSUMIDOR  1
-#define MAX_FILHOS       4096          /* teto de processos criados na sessão */
+#define MAX_FILHOS       4096
 
 typedef struct {
     pid_t  pid;
-    int    tipo;        /* TIPO_PRODUTOR | TIPO_CONSUMIDOR                     */
-    int    fila;        /* 0..g_p-1, ou FILA_STRIPED para "produz 0"          */
+    int    tipo;
+    int    fila;        /* 0..g_p-1 ou FILA_STRIPED */
     int    n_msgs;
-    double t_inicio;    /* tempo_seg() no fork                                */
-    double t_fim;       /* tempo_seg() quando o waitpid o colheu             */
-    int    vivo;        /* 1 enquanto ainda não foi colhido por waitpid       */
+    double t_inicio;
+    double t_fim;
+    int    vivo;        /* 1 até ser colhido pelo waitpid */
 } filho_t;
 
 static filho_t g_filhos[MAX_FILHOS];
 static int     g_nfilhos;
 
-/* Total de mensagens consumidas por fila; só o handler escreve, por isso
- * é volatile sig_atomic_t. Indexado pela fila interna (0..g_p-1). */
+/* Só o handler escreve aqui. */
 static volatile sig_atomic_t g_consumidas[MAX_PRODUTORES];
 
-/* ------------------------------------------------------- handler SIG_CONSUMO
- * O consumidor faz sigqueue(mpmc, SIG_CONSUMO, {.sival_int = fila}) a cada
- * mensagem consumida. SIG_CONSUMO é um sinal de tempo real (enfileira), então
- * nenhuma contagem se perde mesmo com vários consumidores ao mesmo tempo. */
+/* Cada mensagem consumida chega como um SIG_CONSUMO com a fila em sival_int. */
 static void on_consumo(int sig, siginfo_t *si, void *uc)
 {
     (void)sig; (void)uc;
@@ -78,7 +58,7 @@ static void instalar_handler(void)
     struct sigaction sa;
     memset(&sa, 0, sizeof sa);
     sa.sa_sigaction = on_consumo;
-    sa.sa_flags     = SA_SIGINFO | SA_RESTART;  /* SA_SIGINFO: recebe sival_int */
+    sa.sa_flags     = SA_SIGINFO | SA_RESTART;
     sigemptyset(&sa.sa_mask);
     if (sigaction(SIG_CONSUMO, &sa, NULL) == -1) {
         perror("sigaction(SIG_CONSUMO)");
@@ -86,9 +66,6 @@ static void instalar_handler(void)
     }
 }
 
-/* --------------------------------------------------------- utilitários */
-
-/* Converte uma string inteira por completo; -1 se não for um inteiro válido. */
 static int parse_int(const char *s, int *out)
 {
     char *fim;
@@ -100,9 +77,7 @@ static int parse_int(const char *s, int *out)
     return 0;
 }
 
-/* Colhe (sem bloquear) os filhos que já terminaram e anota o tempo de fim.
- * Chamado a cada volta do loop: mantém a tabela em dia e evita processos
- * zumbis enquanto o mpmc espera o próximo comando. */
+/* Colhe, sem bloquear, os filhos que já terminaram e anota o fim. */
 static void colher_filhos(void)
 {
     pid_t pid;
@@ -116,10 +91,8 @@ static void colher_filhos(void)
             }
         }
     }
-    /* pid == -1 com errno ECHILD (nenhum filho) é esperado: ignoramos. */
 }
 
-/* fork() de um filho produtor/consumidor e registro na tabela. */
 static void criar_filho(int tipo, int fila, int n_msgs, int ack)
 {
     if (g_nfilhos >= MAX_FILHOS) {
@@ -134,14 +107,11 @@ static void criar_filho(int tipo, int fila, int n_msgs, int ack)
         return;
     }
     if (pid == 0) {
-        /* Filho: executa a tarefa e termina. produz_main/consome_main já
-         * chamam _exit(); o _exit abaixo é só uma rede de segurança. */
         if (tipo == TIPO_PRODUTOR) produz_main(fila, n_msgs, ack);
         else                       consome_main(fila, n_msgs, ack);
         _exit(0);
     }
 
-    /* Pai: registra o filho recém-criado. */
     filho_t *f = &g_filhos[g_nfilhos++];
     f->pid      = pid;
     f->tipo     = tipo;
@@ -152,8 +122,7 @@ static void criar_filho(int tipo, int fila, int n_msgs, int ack)
     f->vivo     = 1;
 }
 
-/* Valida e executa "produz p n_msgs ack" ou "consome p n_msgs ack".
- * tok[0] é o comando; espera exatamente 4 tokens (o '&' já foi removido). */
+/* tok = { "produz" | "consome", p, n_msgs, ack }, já sem o '&' final. */
 static void cmd_produz_consome(int tipo, char **tok, int ntok)
 {
     const char *nome = (tipo == TIPO_PRODUTOR) ? "produz" : "consome";
@@ -170,20 +139,17 @@ static void cmd_produz_consome(int tipo, char **tok, int ntok)
         return;
     }
 
-    /* ack: 1 (espera confirmacao) ou 2 (nao espera) */
     if (ack != ACK_SIM && ack != ACK_NAO) {
         printf(">>>> erro - ack deve ser 1 (sim) ou 2 (nao)\n");
         return;
     }
-    /* n_msgs: 1..1024 */
     if (n_msgs < MIN_MSGS || n_msgs > MAX_MSGS) {
         printf(">>>> erro - n_msgs deve estar entre %d e %d\n",
                MIN_MSGS, MAX_MSGS);
         return;
     }
 
-    /* Fila: o usuário digita 1..g_p; internamente é 0..g_p-1.
-     * Só o produz aceita 0, que vira o padrão striped (FILA_STRIPED). */
+    /* Só o produz aceita a fila 0 (striped). */
     int fila;
     if (tipo == TIPO_PRODUTOR && p == 0) {
         fila = FILA_STRIPED;
@@ -197,28 +163,23 @@ static void cmd_produz_consome(int tipo, char **tok, int ntok)
     criar_filho(tipo, fila, n_msgs, ack);
 }
 
-/* Encerra o sistema: mata os filhos, espera todos, imprime o relatório e
- * apaga os recursos IPC. */
 static void cmd_shutdown(double t_mpmc_inicio)
 {
-    /* 1. SIGTERM nos filhos que ainda estão vivos (ex.: produtor bloqueado
-     *    esperando ack, ou consumidor bloqueado esperando mensagem). */
+    /* Filhos ainda vivos estão bloqueados esperando ack, espaço ou mensagem. */
     for (int i = 0; i < g_nfilhos; i++)
         if (g_filhos[i].vivo)
             kill(g_filhos[i].pid, SIGTERM);
 
-    /* 2. Espera (bloqueante) cada filho vivo terminar e anota o tempo de fim. */
     for (int i = 0; i < g_nfilhos; i++) {
         if (!g_filhos[i].vivo)
             continue;
         int status;
         while (waitpid(g_filhos[i].pid, &status, 0) == -1 && errno == EINTR)
-            ;                                   /* um sinal interrompeu: repete */
+            ;
         g_filhos[i].t_fim = tempo_seg();
         g_filhos[i].vivo  = 0;
     }
 
-    /* 3. Tempo de execução de cada processo filho. */
     printf("\n========== shutdown ==========\n");
     printf("Processos criados: %d\n", g_nfilhos);
     for (int i = 0; i < g_nfilhos; i++) {
@@ -232,23 +193,19 @@ static void cmd_shutdown(double t_mpmc_inicio)
                    i, nome, f->pid, f->fila + 1, f->t_fim - f->t_inicio);
     }
 
-    /* 4. Total de mensagens consumidas em cada fila (numeração do usuário). */
     printf("Mensagens consumidas por fila:\n");
     for (int i = 0; i < g_p; i++)
         printf("  fila %d: %d\n", i + 1, (int)g_consumidas[i]);
 
-    /* 5. Tempo total de operação do mpmc. */
     printf("Tempo de operacao do mpmc: %.6f s\n",
            tempo_seg() - t_mpmc_inicio);
 
-    /* 6. Apaga os recursos IPC (shm+sem ou filas de mensagem). */
     ipc_destroy();
     printf("IPC removido. Encerrado.\n");
 }
 
 int main(int argc, char **argv)
 {
-    /* -------- 1. valida "mpmc p paradigma" -------- */
     if (argc != 3) {
         fprintf(stderr, "uso: %s p paradigma\n", argv[0]);
         return 1;
@@ -264,60 +221,54 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* -------- 2. prepara estado ANTES do primeiro fork -------- */
+    /* Handler e recursos IPC precisam existir antes do primeiro fork. */
     g_mpmc_pid = getpid();
-    instalar_handler();                 /* handler de SIG_CONSUMO */
+    instalar_handler();
 
-    /* SIGCHLD bloqueado e entregue por um descritor: o loop espera o teclado
-     * e esse descritor juntos, e colhe o filho no instante em que termina.
-     * Sem handler, a tabela de filhos só muda no loop (sem condição de
-     * corrida com o fork). Se o signalfd falhar, sfd = -1 e o poll o ignora:
-     * os filhos voltam a ser colhidos só a cada comando. */
+    /* O SIGCHLD fica bloqueado e é lido pelo signalfd junto com o teclado.
+     * Se o signalfd falhar (sfd = -1), o poll ignora o descritor e os filhos
+     * são colhidos só a cada comando. */
     sigset_t so_chld;
     sigemptyset(&so_chld);
     sigaddset(&so_chld, SIGCHLD);
     sigprocmask(SIG_BLOCK, &so_chld, NULL);
     int sfd = signalfd(-1, &so_chld, SFD_NONBLOCK);
 
-    /* Sem buffer na entrada: com buffer, linhas já lidas para dentro do stdio
-     * não apareceriam para o poll e o mpmc travaria esperando. */
+    /* Com buffer, linhas já lidas pelo stdio não apareceriam para o poll. */
     setvbuf(stdin, NULL, _IONBF, 0);
 
-    if (ipc_init(paradigma, p) == -1) { /* cria os recursos IPC */
+    if (ipc_init(paradigma, p) == -1) {
         perror("ipc_init");
         return 1;
     }
 
     double t_inicio = tempo_seg();
 
-    /* -------- 3. loop do shell ">>" -------- */
     char linha[256];
     while (1) {
-        colher_filhos();                /* anota quem terminou desde o último comando */
+        colher_filhos();
 
         printf(">> ");
         fflush(stdout);
 
-        /* Espera o próximo comando; se um filho terminar antes, colhe já. */
         struct pollfd pf[2] = { { STDIN_FILENO, POLLIN, 0 }, { sfd, POLLIN, 0 } };
         while (poll(pf, 2, -1) != -1 || errno == EINTR) {
             if (pf[1].revents & POLLIN) {
                 struct signalfd_siginfo si;
                 while (read(sfd, &si, sizeof si) == (ssize_t)sizeof si)
-                    ;                   /* esvazia: vários SIGCHLD viram um */
+                    ;
                 colher_filhos();
             }
-            if (pf[0].revents)          /* chegou linha, EOF ou erro */
+            if (pf[0].revents)          /* linha, EOF ou erro */
                 break;
             pf[0].revents = pf[1].revents = 0;
         }
 
         if (fgets(linha, sizeof linha, stdin) == NULL) {
-            printf("\n");               /* EOF (Ctrl-D) -> trata como shutdown */
+            printf("\n");               /* Ctrl-D encerra como o shutdown */
             break;
         }
 
-        /* Tokeniza por espaços, tabs e nova-linha. */
         char *tok[8];
         int   ntok = 0;
         for (char *s = strtok(linha, " \t\r\n");
@@ -326,11 +277,9 @@ int main(int argc, char **argv)
             tok[ntok++] = s;
 
         if (ntok == 0)
-            continue;                   /* linha em branco */
+            continue;
 
-        /* Remove o '&' final (lançamento em background não muda nada para o
-         * pai: produz/consome já rodam concorrentes como processos à parte).
-         * Aceita o '&' separado ("... 1 &") ou colado ("... 1&"). */
+        /* O '&' final é aceito e ignorado: os filhos já rodam em paralelo. */
         char  *ultimo = tok[ntok - 1];
         size_t tam    = strlen(ultimo);
         if (tam == 1 && ultimo[0] == '&')
@@ -340,7 +289,6 @@ int main(int argc, char **argv)
         if (ntok == 0)
             continue;
 
-        /* -------- despacho dos comandos -------- */
         if (strcmp(tok[0], "shutdown") == 0)
             break;
         else if (strcmp(tok[0], "produz") == 0)
@@ -351,7 +299,6 @@ int main(int argc, char **argv)
             printf(">>>> erro - comando desconhecido: %s\n", tok[0]);
     }
 
-    /* -------- 4. encerramento -------- */
     cmd_shutdown(t_inicio);
     return 0;
 }

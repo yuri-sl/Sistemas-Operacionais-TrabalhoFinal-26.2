@@ -1,24 +1,22 @@
-/* ipc_shm.c — paradigma 1 (shm + sem) */
+/* ipc_shm.c: paradigma 1, memória compartilhada com semáforos */
 #include "common.h"
 #include <errno.h>
 #include <sys/ipc.h>
 #include <sys/sem.h>
 #include <sys/shm.h>
 
-/* A glibc não declara esta union: quem chama semctl é que define */
+/* A glibc não declara esta union; o programa precisa definir. */
 union semun {
     int              val;
     struct semid_ds *buf;
     unsigned short  *array;
 };
 
-/* Preenchidos no init, antes do 1º fork: os filhos herdam ids e mapeamentos */
 static int        g_shmid[MAX_PRODUTORES];
 static shm_buf_t *g_buf[MAX_PRODUTORES];
-static int        g_nsegs;                  /* segmentos criados em g_shmid */
+static int        g_nsegs;
 static int        g_semid = -1;
 
-/* Repete em EINTR; os demais erros (EAGAIN, EIDRM...) vão para o chamador */
 static int sem_alterar(int sem, int delta, int flags)
 {
     struct sembuf op = { .sem_num = sem, .sem_op = delta, .sem_flg = flags };
@@ -98,8 +96,8 @@ int shmbuf_get(int fila, msg_t *m, int bloqueante)
 {
     shm_buf_t *b = g_buf[fila];
 
-    /* Só o CHEIO depende do modo. O MUTEX bloqueia sempre: com IPC_NOWAIT,
-     * uma simples disputa pelo mutex seria confundida com fila vazia. */
+    /* Só o CHEIO usa IPC_NOWAIT: no mutex, uma disputa momentânea seria
+     * confundida com fila vazia. */
     if (P(SEM_CHEIO(fila), bloqueante ? 0 : IPC_NOWAIT) == -1 ||
         P(SEM_MUTEX(fila), 0) == -1)
         return -1;
@@ -112,7 +110,7 @@ int shmbuf_get(int fila, msg_t *m, int bloqueante)
     return 0;
 }
 
-/* Também desfaz um init incompleto, por isso confere o que chegou a existir */
+/* Também é usada para desfazer um init que falhou no meio. */
 void shmbuf_destroy(void)
 {
     for (int i = 0; i < g_nsegs; i++) {

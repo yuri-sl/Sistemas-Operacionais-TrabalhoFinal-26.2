@@ -1,8 +1,7 @@
 #!/bin/bash
-# Os comandos vao com uma pausa entre eles, como se fossem digitados: mandados
-# todos de uma vez, o shutdown mata os filhos antes de eles trabalharem.
-echo " Teste 3.3 Filas de Mensagem — Striped com 5 produtores"
-echo " Esperado: fila 1 com 2 consumidas, fila 2 com 3, demais com 0"
+# Pausas entre os comandos: sem elas o shutdown chega antes de os filhos trabalharem.
+echo "Teste 3.3 Filas de Mensagem - Striped com 5 produtores"
+echo "Esperado: fila 1 com 2 consumidas, fila 2 com 3, demais com 0"
 {
     echo "produz 0 15 2"; sleep 0.5
     echo "consome 2 3 1"; sleep 0.5
