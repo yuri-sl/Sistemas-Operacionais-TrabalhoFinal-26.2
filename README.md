@@ -1,5 +1,12 @@
 # MPMC — Múltiplos Produtores / Múltiplos Consumidores
 
+Integrantes:
+Alan Henrique Rangel Ferreira
+Felipe de Oliveira Fonseca Ribeiro
+Joao Pedro Fernandes Santos
+Gabriel Ribeiro da Silva
+Yuri Santana Lopes
+
 Trabalho prático de Sistemas Operacionais.
 
 O sistema tem p produtores e consumidores e usa um de dois paradigmas de IPC System V:
