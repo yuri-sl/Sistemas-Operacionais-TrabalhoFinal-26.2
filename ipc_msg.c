@@ -1,4 +1,4 @@
-/* ipc_msg.c — Pessoa 3: paradigma 2 (fila de mensagens System V) */
+/* ipc_msg.c — paradigma 2 (fila de mensagens System V) */
 #include "common.h"
 
 #include <errno.h>

@@ -1,7 +1,4 @@
 /*
- * common.h — CONTRATO do trabalho MPMC (SO 02/2026, Prof. Alba)
- *
- * Todo mundo inclui este arquivo. Qualquer mudança aqui -> avisar o grupo ANTES.
  *
  * Convenções gerais
  * -----------------
@@ -28,11 +25,10 @@
 #include <signal.h>
 #include <time.h>
 
-/* ---------------------------------------------------------------- limites */
 #define MAX_PRODUTORES 64
 #define MIN_MSGS       1
 #define MAX_MSGS       1024
-#define SHM_SIZE       2048          /* exigido pelo enunciado */
+#define SHM_SIZE       2048
 
 #define PARADIGMA_SHM  1
 #define PARADIGMA_MSG  2
@@ -42,18 +38,18 @@
 
 #define FILA_STRIPED   (-1)
 
-/* --------------------------------------------------------------- mensagem */
+/* mensagem */
 typedef struct {
-    pid_t           pid;      /* pid do processo produz que enviou          */
+    pid_t           pid;
     int             seq;      /* 1..n_msgs, sequencial POR processo emissor */
     int             ack;      /* ACK_SIM -> consumidor confirma ao produtor */
     struct timespec t_envio;  /* clock_gettime(CLOCK_REALTIME) no put       */
 } msg_t;                      /* 32 bytes em x86_64                         */
 
-/* ---------------------------------------- paradigma 1: shm + sem (Pessoa 2) */
+/* paradigma 1: shm + sem */
 typedef struct {
-    int head;                 /* próximo slot a ler     */
-    int tail;                 /* próximo slot a escrever */
+    int head;                 /* próximo slot a ler*/
+    int tail;                 /* próximo slot a escrever*/
 } shm_hdr_t;
 
 #define SHM_SLOTS ((SHM_SIZE - sizeof(shm_hdr_t)) / sizeof(msg_t))  /* = 63 */
@@ -71,25 +67,25 @@ _Static_assert(sizeof(shm_buf_t) <= SHM_SIZE, "buffer nao cabe em 2048 bytes");
 #define SEM_VAZIO(i) (3 * (i) + 1)   /* init SHM_SLOTS  */
 #define SEM_CHEIO(i) (3 * (i) + 2)   /* init 0          */
 
-/* --------------------------------------- paradigma 2: msg queue (Pessoa 3) */
+/* paradigma 2: msg queue */
 typedef struct {
     long  mtype;              /* sempre MQ_MTYPE */
     msg_t m;
 } mq_msg_t;
 
 #define MQ_MTYPE 1L
-/* msgsnd(id, &x, sizeof(msg_t), 0)  -- o tamanho NÃO inclui o mtype */
+/* msgsnd(id, &x, sizeof(msg_t), 0) */
 
-/* ---------------------------------------------------------------- sinais */
+/* sinais */
 #define SIG_ACK     (SIGRTMIN)       /* consumidor -> produtor (1 por msg)      */
 #define SIG_CONSUMO (SIGRTMIN + 1)   /* consumidor -> mpmc, sival_int = fila    */
 
-/* ------------------------------------------------- globais (em mpmc.c) */
+/* globais (usados em mpmc.c) */
 extern int   g_paradigma;
 extern int   g_p;
 extern pid_t g_mpmc_pid;
 
-/* ------------------------------------------- interface IPC (ipc.c) ------
+/*  interface IPC (ipc.c) ------
  * Produz/consome usam SÓ estas 4 funções; não sabem qual é o paradigma.
  * Retorno: 0 = ok, -1 = erro (errno setado).
  *   ipc_get não bloqueante e fila vazia -> -1 com errno = EAGAIN.
@@ -101,28 +97,27 @@ int  ipc_get(int fila, msg_t *m, int bloqueante);
 void ipc_destroy(void);                            /* mpmc, no shutdown       */
 
 /* Implementações de cada paradigma (ipc.c faz o despacho) */
-int  shmbuf_init(int p);                           /* Pessoa 2: ipc_shm.c */
+int  shmbuf_init(int p);                           /* ipc_shm.c */
 int  shmbuf_put(int fila, const msg_t *m);
 int  shmbuf_get(int fila, msg_t *m, int bloqueante);
 void shmbuf_destroy(void);
 
-int  msgq_init(int p);                             /* Pessoa 3: ipc_msg.c */
+int  msgq_init(int p);                             /* ipc_msg.c */
 int  msgq_put(int fila, const msg_t *m);
 int  msgq_get(int fila, msg_t *m, int bloqueante);
 void msgq_destroy(void);
 
-/* ------------------------------------------------ produz.c (Pessoa 4) */
+/*  produz.c*/
 void produz_main(int fila, int n_msgs, int ack);   /* fila 0..p-1 ou FILA_STRIPED */
 void ack_preparar(void);   /* bloqueia SIG_ACK; chamar ANTES do 1º ipc_put  */
 int  ack_esperar(int n);   /* sigwaitinfo até receber n SIG_ACK             */
 
-/* ------------------------------------------------ consome.c (Pessoa 5) */
+/* consome.c */
 void consome_main(int fila, int n_msgs, int ack);  /* _exit(0) completo, _exit(1) parcial */
 void ack_confirmar(const msg_t *m);                /* se m->ack == ACK_SIM: sigqueue(m->pid, SIG_ACK) */
 void consumo_notificar(int fila);                  /* sigqueue(g_mpmc_pid, SIG_CONSUMO, {fila}) */
 
-/* --------------------------------------------------------------- utilitário */
-static inline double tempo_seg(void)               /* para medir durações */
+static inline double tempo_seg(void)               /* para medir duração */
 {
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);

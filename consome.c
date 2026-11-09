@@ -1,4 +1,4 @@
-/* consome.c — Pessoa 5: processo consumidor (+ testes) */
+/* consome.c — processo consumidor (+ testes) */
 #include "common.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,10 +54,10 @@ void consome_main(int fila, int n_msgs, int ack)
 
         consumidas++;
 
-        /* 1. Confirma o recebimento ao produtor */
+        /* Confirmar o recebimento ao produtor */
         ack_confirmar(&m);
 
-        /* 2. Notifica o shell mpmc do consumo efetuado */
+        /* Notificar o shell mpmc do consumo*/
         consumo_notificar(fila);
     }
 

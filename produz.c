@@ -1,4 +1,4 @@
-/* produz.c — Pessoa 4: processo produtor
+/* produz.c — processo produtor
  *
  * Roteiro do produtor (filho do mpmc, criado por fork):
  *   1. liga o "não perturbe" do SIG_ACK      -> ack_preparar()
@@ -16,7 +16,7 @@
 /* Conjunto com um único sinal, o SIG_ACK. */
 static sigset_t g_so_ack;
 
-/* ------------------------------------------------------------ confirmações */
+/* confirmações */
 
 /* Bloqueia o SIG_ACK. Bloqueado, o sinal não mata o processo (ação padrão
  * de um sinal de tempo real): fica guardado até ack_esperar() retirá-lo.
@@ -42,7 +42,7 @@ int ack_esperar(int n)
     return 0;
 }
 
-/* ------------------------------------------------------------------- envio */
+/* ENVIO */
 
 /* Monta a "etiqueta" da mensagem. */
 static msg_t nova_msg(pid_t meu_pid, int seq, int ack)
@@ -81,7 +81,7 @@ static _Noreturn void falhar(const char *o_que, int seq)
     _exit(1);
 }
 
-/* -------------------------------------------------------------- principal */
+/* principal */
 
 void produz_main(int fila, int n_msgs, int ack)
 {

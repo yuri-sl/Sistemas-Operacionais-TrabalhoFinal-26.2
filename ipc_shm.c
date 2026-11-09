@@ -1,4 +1,4 @@
-/* ipc_shm.c — Pessoa 2: paradigma 1 (shm + sem) */
+/* ipc_shm.c — paradigma 1 (shm + sem) */
 #include "common.h"
 #include <errno.h>
 #include <sys/ipc.h>
