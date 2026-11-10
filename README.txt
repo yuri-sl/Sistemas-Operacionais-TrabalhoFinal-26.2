@@ -194,9 +194,9 @@ clean:
     rm -f *.o mpmc
 
 ipcclean:
-    ipcs -m | awk '$3 == "'$USER'" {print $2}' | xargs -r -n1 ipcrm -m
-    ipcs -s | awk '$3 == "'$USER'" {print $2}' | xargs -r -n1 ipcrm -s
-    ipcs -q | awk '$3 == "'$USER'" {print $2}' | xargs -r -n1 ipcrm -q
+    ipcs -m | awk '$$3 == "'$$USER'" {print $$2}' | xargs -r -n1 ipcrm -m
+    ipcs -s | awk '$$3 == "'$$USER'" {print $$2}' | xargs -r -n1 ipcrm -s
+    ipcs -q | awk '$$3 == "'$$USER'" {print $$2}' | xargs -r -n1 ipcrm -q
 
 .PHONY: clean ipcclean
 EOF
